@@ -27,6 +27,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.privacyshield.app.ui.screens.AccessHistoryScreen
 import com.privacyshield.app.ui.screens.IndicatorSettingsScreen
 import com.privacyshield.app.ui.screens.AssistantScreen
 import com.privacyshield.app.ui.screens.EmergencyScreen
@@ -131,7 +132,8 @@ private fun AppNav(viewModel: ShieldViewModel) {
                     onEmergency = { navController.navigate("emergency") },
                     onAssistant = { navController.navigate("assistant") },
                     onUpdate = { navController.navigate("update") },
-                    onIndicators = { navController.navigate("indicators") }
+                    onIndicators = { navController.navigate("indicators") },
+                    onAccessHistory = { navController.navigate("access_history") }
                 )
             }
             composable("suspicious") { SuspiciousScreen(viewModel) { navController.popBackStack() } }
@@ -153,6 +155,7 @@ private fun AppNav(viewModel: ShieldViewModel) {
             composable("emergency") { EmergencyScreen(viewModel) { navController.popBackStack() } }
             composable("assistant") { AssistantScreen(viewModel) { navController.popBackStack() } }
             composable("update") { UpdateScreen(viewModel) { navController.popBackStack() } }
+            composable("access_history") { AccessHistoryScreen { navController.popBackStack() } }
             composable("indicators") { IndicatorSettingsScreen(viewModel) { navController.popBackStack() } }
             composable("pin/setup") {
                 PinSetupScreen(viewModel, onBack = { navController.popBackStack() }, changing = false)

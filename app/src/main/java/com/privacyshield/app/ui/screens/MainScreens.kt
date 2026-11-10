@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -297,11 +298,13 @@ fun MoreScreen(
     onEmergency: () -> Unit,
     onAssistant: () -> Unit,
     onUpdate: () -> Unit,
-    onIndicators: () -> Unit
+    onIndicators: () -> Unit,
+    onAccessHistory: () -> Unit
 ) {
     Scaffold(topBar = { ShieldTopBar("Thêm") }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { MoreRow(Icons.Filled.Visibility, "Chỉ báo quyền riêng tư", "Ba chấm nổi — hiện khi ứng dụng có quyền", onIndicators) }
+            item { MoreRow(Icons.Filled.Videocam, "Lịch sử truy cập camera & micrô", "Ứng dụng nào đã dùng, lúc nào, kèm biểu tượng", onAccessHistory) }
+            item { MoreRow(Icons.Filled.Visibility, "Chấm chỉ báo", "Chấm nổi ở góc khi camera/micrô đang được dùng", onIndicators) }
             item { MoreRow(Icons.Filled.Security, "Trạng thái bảo vệ", "Kiểm tra PIN, dịch vụ, quản trị thiết bị", onProtection) }
             item { MoreRow(Icons.Filled.History, "Nhật ký", "Sự kiện quét và két, chỉ lưu trên máy", onLog) }
             item { MoreRow(Icons.Filled.VpnKey, "Két bảo mật", "Ghi chú mã hóa cục bộ", onVault) }

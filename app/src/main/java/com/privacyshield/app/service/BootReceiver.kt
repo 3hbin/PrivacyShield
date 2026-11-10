@@ -9,6 +9,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
         ActivityLog(context).add("BOOT", "Máy vừa khởi động lại. Cài đặt và két vẫn nằm trên máy.")
+        SensorMonitor.start(context)
         IndicatorOverlayService.startIfEnabled(context)
     }
 }

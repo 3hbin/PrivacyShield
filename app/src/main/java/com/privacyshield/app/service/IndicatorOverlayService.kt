@@ -5,245 +5,277 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
-import androidx.core.content.ContextCompat
+import android.widget.ImageView
+import android.widget.LinearLayout
+import com.privacyshield.app.R
+import com.privacyshield.app.data.IndicatorSettings
 import com.privacyshield.app.data.ShieldPreferences
-import android.graphics.drawable.GradientDrawable
-import android.util.TypedValue
-import android.view.MotionEvent
 
 /**
- * Floating privacy indicators.
+ * Small privacy dots pinned to a screen corner, like the Android 12 indicators.
  *
- * On Android 8/9 there is no public API that reports whether camera, microphone or location
- * is currently being used by another app. The dots therefore only appear when the foreground
- * app has the corresponding permission granted. This is permission presence, not live sensor use.
+ *  - Camera and microphone dots show only while the sensor is really in use
+ *    (see [SensorMonitor]).
+ *  - The location dot is optional and only reflects that the app on screen holds a location
+ *    permission. Android gives third-party apps no public signal for live location use.
+ *
+ * The overlay is not touchable, so it never blocks the app underneath.
  */
 class IndicatorOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private val dots = mutableListOf<DotView>()
+    private val handler = Handler(Looper.getMainLooper())
+    private var container: LinearLayout? = null
+    private val dots = mutableMapOf<String, View>()
+    private var previewUntil = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        if (Settings.canDrawOverlays(this)) {
-            showDots()
-        }
+        SensorMonitor.start(this)
+        rebuild()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_UPDATE) {
-            updateVisibility()
-        } else if (Settings.canDrawOverlays(this)) {
-            showDots()
-            updateVisibility()
-        }
+        handle(intent?.action)
         return START_STICKY
     }
 
     override fun onDestroy() {
-        removeDots()
+        instance = null
+        handler.removeCallbacksAndMessages(null)
+        removeAll()
         super.onDestroy()
     }
 
-    private fun showDots() {
-        if (dots.isNotEmpty()) return
+    private fun handle(action: String?) {
+        when (action) {
+            ACTION_UPDATE -> updateVisibility()
+            ACTION_PREVIEW -> {
+                previewUntil = System.currentTimeMillis() + PREVIEW_MS
+                updateVisibility()
+                handler.postDelayed({ updateVisibility() }, PREVIEW_MS + 100)
+            }
+            else -> rebuild()
+        }
+    }
+
+    // ---- building ------------------------------------------------------------------------
+
+    private fun rebuild() {
+        removeAll()
+        if (!Settings.canDrawOverlays(this)) return
         val prefs = ShieldPreferences.get(this).settings.value.indicators
         if (!prefs.enabled) return
 
-        val types = listOf(
-            Triple("camera", 0xFF4CAF50.toInt(), prefs.showCamera),
-            Triple("mic", 0xFFFF9800.toInt(), prefs.showMic),
-            Triple("location", 0xFF2196F3.toInt(), prefs.showLocation)
-        )
-        for ((id, color, show) in types) {
-            if (!show) continue
-            val view = createDot(color, prefs.sizeDp, prefs.opacity, id)
-            val params = createParams(id, prefs)
-            view.visibility = View.GONE // hidden until updateVisibility() decides
-            try {
-                windowManager.addView(view, params)
-                dots += DotView(id, view, params)
-            } catch (_: Exception) {
-                // Overlay permission may have been revoked
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val gap = dp(4f)
+        fun add(id: String, color: Int, show: Boolean) {
+            if (!show) return
+            val dot = createDot(id, color, prefs)
+            val lp = LinearLayout.LayoutParams(dotSizePx(prefs), dotSizePx(prefs)).apply {
+                marginStart = gap
+                marginEnd = gap
             }
+            row.addView(dot, lp)
+            dots[id] = dot
         }
+        add(ID_CAMERA, prefs.cameraColor, prefs.showCamera)
+        add(ID_MIC, prefs.micColor, prefs.showMic)
+        add(ID_LOCATION, prefs.locColor, prefs.showLocation)
+        if (dots.isEmpty()) return
+
+        try {
+            windowManager.addView(row, createParams(prefs))
+            container = row
+        } catch (_: Exception) {
+            dots.clear() // overlay permission may have been revoked
+            return
+        }
+        updateVisibility()
     }
 
-    private fun dotSizePx(sizeDp: Float): Int =
-        TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP, sizeDp.coerceIn(6f, 48f), resources.displayMetrics
-        ).toInt().coerceAtLeast(8)
+    private fun dotSizePx(prefs: IndicatorSettings): Int {
+        val factor = if (prefs.showIcons) ICON_SCALE else 1f
+        return dp((prefs.sizeDp * factor).coerceIn(8f, 64f))
+    }
 
-    private fun createDot(color: Int, sizeDp: Float, opacity: Float, id: String): View {
-        val sizePx = dotSizePx(sizeDp)
-        val view = View(this)
-        val drawable = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(color)
-            alpha = (opacity * 255).toInt().coerceIn(80, 255)
-        }
-        view.background = drawable
-        view.layoutParams = FrameLayout.LayoutParams(sizePx, sizePx)
-
-        var startX = 0
-        var startY = 0
-        var touchStartX = 0f
-        var touchStartY = 0f
-        view.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    val p = dots.find { it.id == id }?.params
-                    startX = p?.x ?: 0
-                    startY = p?.y ?: 0
-                    touchStartX = event.rawX
-                    touchStartY = event.rawY
-                    true
+    private fun createDot(id: String, color: Int, prefs: IndicatorSettings): View {
+        val size = dotSizePx(prefs)
+        val view = ImageView(this)
+        if (prefs.showIcons) {
+            view.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xE6121417.toInt())
+                setStroke(dp(1.5f).coerceAtLeast(1), color)
+            }
+            view.setImageResource(
+                when (id) {
+                    ID_CAMERA -> R.drawable.ic_dot_camera
+                    ID_MIC -> R.drawable.ic_dot_mic
+                    else -> R.drawable.ic_dot_location
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - touchStartX).toInt()
-                    val dy = (event.rawY - touchStartY).toInt()
-                    val params = dots.find { it.id == id }?.params ?: return@setOnTouchListener true
-                    params.x = startX + dx
-                    params.y = startY + dy
-                    try { windowManager.updateViewLayout(view, params) } catch (_: Exception) {}
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    savePosition(id, view)
-                    true
-                }
-                else -> false
+            )
+            view.setColorFilter(color, PorterDuff.Mode.SRC_IN)
+            val pad = (size * 0.24f).toInt()
+            view.setPadding(pad, pad, pad, pad)
+            view.scaleType = ImageView.ScaleType.FIT_CENTER
+        } else {
+            view.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setStroke(dp(1f).coerceAtLeast(1), 0x66000000)
             }
         }
+        view.alpha = prefs.opacity.coerceIn(0.3f, 1f)
+        view.visibility = View.GONE
         return view
     }
 
-    private fun createParams(id: String, prefs: com.privacyshield.app.data.IndicatorSettings): WindowManager.LayoutParams {
-        val (fx, fy) = when (id) {
-            "camera" -> prefs.cameraX to prefs.cameraY
-            "mic" -> prefs.micX to prefs.micY
-            else -> prefs.locX to prefs.locY
-        }
-        val metrics = resources.displayMetrics
-        val x = (fx * metrics.widthPixels).toInt()
-        val y = (fy * metrics.heightPixels).toInt()
-        val sizePx = dotSizePx(prefs.sizeDp)
+    private fun createParams(prefs: IndicatorSettings): WindowManager.LayoutParams {
+        val size = dotSizePx(prefs)
+        val top = prefs.corner == IndicatorSettings.CORNER_TOP_LEFT ||
+            prefs.corner == IndicatorSettings.CORNER_TOP_RIGHT
+        val left = prefs.corner == IndicatorSettings.CORNER_TOP_LEFT ||
+            prefs.corner == IndicatorSettings.CORNER_BOTTOM_LEFT
+        val statusBar = systemDimen("status_bar_height", dp(24f))
+        val navBar = systemDimen("navigation_bar_height", dp(48f))
+
         return WindowManager.LayoutParams(
-            sizePx,
-            sizePx,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            this.x = x
-            this.y = y
+            gravity = (if (top) Gravity.TOP else Gravity.BOTTOM) or
+                (if (left) Gravity.START else Gravity.END)
+            x = dp(6f)
+            y = if (top) ((statusBar - size) / 2).coerceAtLeast(dp(2f)) else navBar + dp(12f)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
     }
+
+    // ---- state ---------------------------------------------------------------------------
 
     private fun updateVisibility() {
         val prefs = ShieldPreferences.get(this).settings.value.indicators
         if (!prefs.enabled) {
-            removeDots()
+            removeAll()
             return
         }
-        if (dots.isEmpty() && Settings.canDrawOverlays(this)) {
-            showDots()
+        val row = container
+        if (row == null) {
+            rebuild()
+            return
         }
-        val fg = CurrentForeground.packageName
-        val hasCam = fg != null && hasPermission(fg, android.Manifest.permission.CAMERA)
-        val hasMic = fg != null && hasPermission(fg, android.Manifest.permission.RECORD_AUDIO)
-        val hasLoc = fg != null && (
-            hasPermission(fg, android.Manifest.permission.ACCESS_FINE_LOCATION) ||
-                hasPermission(fg, android.Manifest.permission.ACCESS_COARSE_LOCATION)
-            )
-
-        for (dot in dots) {
-            val visible = when (dot.id) {
-                "camera" -> prefs.showCamera && hasCam
-                "mic" -> prefs.showMic && hasMic
-                else -> prefs.showLocation && hasLoc
-            }
-            dot.view.visibility = if (visible) View.VISIBLE else View.GONE
-            // Update position in case user changed settings
-            val newParams = createParams(dot.id, prefs)
-            dot.params.x = newParams.x
-            dot.params.y = newParams.y
-            dot.params.width = newParams.width
-            dot.params.height = newParams.height
-            try {
-                windowManager.updateViewLayout(dot.view, dot.params)
-            } catch (_: Exception) { }
+        val preview = System.currentTimeMillis() < previewUntil
+        var any = false
+        fun set(id: String, visible: Boolean) {
+            val dot = dots[id] ?: return
+            dot.visibility = if (visible || preview) View.VISIBLE else View.GONE
+            if (dot.visibility == View.VISIBLE) any = true
         }
+        set(ID_CAMERA, SensorMonitor.cameraActive)
+        set(ID_MIC, SensorMonitor.micActive)
+        set(ID_LOCATION, foregroundHasLocation())
+        row.visibility = if (any) View.VISIBLE else View.GONE
     }
 
-    private fun savePosition(id: String, view: View) {
-        val params = dots.find { it.id == id }?.params ?: return
-        val metrics = resources.displayMetrics
-        val fx = (params.x.toFloat() / metrics.widthPixels).coerceIn(0f, 0.95f)
-        val fy = (params.y.toFloat() / metrics.heightPixels).coerceIn(0f, 0.9f)
-        val prefs = ShieldPreferences.get(this)
-        prefs.updateSettings { s ->
-            val ind = s.indicators
-            s.copy(indicators = when (id) {
-                "camera" -> ind.copy(cameraX = fx, cameraY = fy)
-                "mic" -> ind.copy(micX = fx, micY = fy)
-                else -> ind.copy(locX = fx, locY = fy)
-            })
-        }
+    private fun foregroundHasLocation(): Boolean {
+        val pkg = CurrentForeground.packageName ?: return false
+        if (pkg == packageName) return false
+        return hasPermission(pkg, android.Manifest.permission.ACCESS_FINE_LOCATION) ||
+            hasPermission(pkg, android.Manifest.permission.ACCESS_COARSE_LOCATION)
     }
 
-    private fun hasPermission(pkg: String, permission: String): Boolean {
-        return try {
-            packageManager.checkPermission(permission, pkg) == PackageManager.PERMISSION_GRANTED
-        } catch (_: Exception) {
-            false
-        }
+    private fun hasPermission(pkg: String, permission: String): Boolean = try {
+        packageManager.checkPermission(permission, pkg) == PackageManager.PERMISSION_GRANTED
+    } catch (_: Exception) {
+        false
     }
 
-    private fun removeDots() {
-        for (dot in dots) {
-            try { windowManager.removeView(dot.view) } catch (_: Exception) { }
-        }
+    private fun removeAll() {
+        container?.let { runCatching { windowManager.removeView(it) } }
+        container = null
         dots.clear()
     }
 
-    private data class DotView(val id: String, val view: View, val params: WindowManager.LayoutParams)
+    private fun dp(value: Float): Int = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics
+    ).toInt()
+
+    private fun systemDimen(name: String, fallback: Int): Int {
+        val id = resources.getIdentifier(name, "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else fallback
+    }
 
     companion object {
         const val ACTION_UPDATE = "com.privacyshield.app.INDICATOR_UPDATE"
+        const val ACTION_REBUILD = "com.privacyshield.app.INDICATOR_REBUILD"
+        const val ACTION_PREVIEW = "com.privacyshield.app.INDICATOR_PREVIEW"
 
-        fun requestUpdate(context: Context) {
-            if (!Settings.canDrawOverlays(context)) return
-            val prefs = ShieldPreferences.get(context).settings.value.indicators
-            if (!prefs.enabled) return
-            context.startService(Intent(context, IndicatorOverlayService::class.java).setAction(ACTION_UPDATE))
-        }
+        private const val ID_CAMERA = "camera"
+        private const val ID_MIC = "mic"
+        private const val ID_LOCATION = "location"
+        private const val ICON_SCALE = 1.7f
+        private const val PREVIEW_MS = 4_000L
+
+        @Volatile
+        private var instance: IndicatorOverlayService? = null
+
+        fun requestUpdate(context: Context) = dispatch(context, ACTION_UPDATE)
+
+        /** Re-reads settings and redraws the dots. */
+        fun requestRebuild(context: Context) = dispatch(context, ACTION_REBUILD)
+
+        /** Shows every enabled dot for a few seconds so the person can see how it looks. */
+        fun preview(context: Context) = dispatch(context, ACTION_PREVIEW)
 
         fun startIfEnabled(context: Context) {
+            SensorMonitor.start(context)
             val prefs = ShieldPreferences.get(context).settings.value.indicators
             if (prefs.enabled && Settings.canDrawOverlays(context)) {
-                context.startService(Intent(context, IndicatorOverlayService::class.java))
+                runCatching { context.startService(Intent(context, IndicatorOverlayService::class.java)) }
             }
         }
 
         fun stop(context: Context) {
             context.stopService(Intent(context, IndicatorOverlayService::class.java))
+        }
+
+        private fun dispatch(context: Context, action: String) {
+            if (!Settings.canDrawOverlays(context)) return
+            val prefs = ShieldPreferences.get(context).settings.value.indicators
+            if (!prefs.enabled) return
+            val running = instance
+            if (running != null) {
+                running.handler.post { running.handle(action) }
+                return
+            }
+            runCatching {
+                context.startService(Intent(context, IndicatorOverlayService::class.java).setAction(action))
+            }
         }
     }
 }

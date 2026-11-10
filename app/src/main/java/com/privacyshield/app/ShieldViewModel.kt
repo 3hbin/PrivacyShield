@@ -18,6 +18,7 @@ import com.privacyshield.app.data.ActivityLog
 import com.privacyshield.app.data.AppScanner
 import com.privacyshield.app.data.ScanResult
 import com.privacyshield.app.data.ShieldPreferences
+import com.privacyshield.app.service.SensorMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +36,10 @@ class ShieldViewModel(application: Application) : AndroidViewModel(application) 
     private val scanner = AppScanner(application)
     val preferences = ShieldPreferences.get(application)
     private val log = ActivityLog(application)
+
+    init {
+        SensorMonitor.start(application)
+    }
 
     private val _scan = MutableStateFlow<ScanState>(ScanState.Idle)
     val scan: StateFlow<ScanState> = _scan.asStateFlow()

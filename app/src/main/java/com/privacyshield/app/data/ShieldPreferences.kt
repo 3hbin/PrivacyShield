@@ -16,16 +16,22 @@ data class IndicatorSettings(
     val enabled: Boolean = false,
     val showCamera: Boolean = true,
     val showMic: Boolean = true,
-    val showLocation: Boolean = true,
-    val sizeDp: Float = 14f,
-    val opacity: Float = 0.92f,
-    val cameraX: Float = 0.62f,
-    val cameraY: Float = 0.04f,
-    val micX: Float = 0.74f,
-    val micY: Float = 0.04f,
-    val locX: Float = 0.86f,
-    val locY: Float = 0.04f
-)
+    val showLocation: Boolean = false,
+    val sizeDp: Float = 12f,
+    val opacity: Float = 1f,
+    val corner: Int = CORNER_TOP_RIGHT,
+    val cameraColor: Int = 0xFF00E676.toInt(),
+    val micColor: Int = 0xFFFF9800.toInt(),
+    val locColor: Int = 0xFF2196F3.toInt(),
+    val showIcons: Boolean = false
+) {
+    companion object {
+        const val CORNER_TOP_LEFT = 0
+        const val CORNER_TOP_RIGHT = 1
+        const val CORNER_BOTTOM_LEFT = 2
+        const val CORNER_BOTTOM_RIGHT = 3
+    }
+}
 
 data class ShieldSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -68,12 +74,11 @@ class ShieldPreferences(context: Context) {
             .putBoolean(KEY_IND_LOC, next.indicators.showLocation)
             .putFloat(KEY_IND_SIZE, next.indicators.sizeDp)
             .putFloat(KEY_IND_OPACITY, next.indicators.opacity)
-            .putFloat(KEY_IND_CAM_X, next.indicators.cameraX)
-            .putFloat(KEY_IND_CAM_Y, next.indicators.cameraY)
-            .putFloat(KEY_IND_MIC_X, next.indicators.micX)
-            .putFloat(KEY_IND_MIC_Y, next.indicators.micY)
-            .putFloat(KEY_IND_LOC_X, next.indicators.locX)
-            .putFloat(KEY_IND_LOC_Y, next.indicators.locY)
+            .putInt(KEY_IND_CORNER, next.indicators.corner)
+            .putInt(KEY_IND_CAM_COLOR, next.indicators.cameraColor)
+            .putInt(KEY_IND_MIC_COLOR, next.indicators.micColor)
+            .putInt(KEY_IND_LOC_COLOR, next.indicators.locColor)
+            .putBoolean(KEY_IND_ICONS, next.indicators.showIcons)
             .apply()
         _settings.value = next.copy(hasPin = hasPin())
     }
@@ -164,19 +169,19 @@ class ShieldPreferences(context: Context) {
     private fun readSettings(): ShieldSettings {
         val theme = settingsPrefs.getString(KEY_THEME, ThemeMode.SYSTEM.name)
         val seed = settingsPrefs.getString(KEY_SEED, SeedColor.TEAL.name)
+        val defaults = IndicatorSettings()
         val indicators = IndicatorSettings(
             enabled = settingsPrefs.getBoolean(KEY_IND_ENABLED, false),
             showCamera = settingsPrefs.getBoolean(KEY_IND_CAM, true),
             showMic = settingsPrefs.getBoolean(KEY_IND_MIC, true),
-            showLocation = settingsPrefs.getBoolean(KEY_IND_LOC, true),
-            sizeDp = settingsPrefs.getFloat(KEY_IND_SIZE, 14f).coerceIn(8f, 28f),
-            opacity = settingsPrefs.getFloat(KEY_IND_OPACITY, 0.92f).coerceIn(0.3f, 1f),
-            cameraX = settingsPrefs.getFloat(KEY_IND_CAM_X, 0.62f).coerceIn(0f, 0.95f),
-            cameraY = settingsPrefs.getFloat(KEY_IND_CAM_Y, 0.04f).coerceIn(0f, 0.9f),
-            micX = settingsPrefs.getFloat(KEY_IND_MIC_X, 0.74f).coerceIn(0f, 0.95f),
-            micY = settingsPrefs.getFloat(KEY_IND_MIC_Y, 0.04f).coerceIn(0f, 0.9f),
-            locX = settingsPrefs.getFloat(KEY_IND_LOC_X, 0.86f).coerceIn(0f, 0.95f),
-            locY = settingsPrefs.getFloat(KEY_IND_LOC_Y, 0.04f).coerceIn(0f, 0.9f)
+            showLocation = settingsPrefs.getBoolean(KEY_IND_LOC, defaults.showLocation),
+            sizeDp = settingsPrefs.getFloat(KEY_IND_SIZE, defaults.sizeDp).coerceIn(8f, 28f),
+            opacity = settingsPrefs.getFloat(KEY_IND_OPACITY, defaults.opacity).coerceIn(0.3f, 1f),
+            corner = settingsPrefs.getInt(KEY_IND_CORNER, defaults.corner).coerceIn(0, 3),
+            cameraColor = settingsPrefs.getInt(KEY_IND_CAM_COLOR, defaults.cameraColor),
+            micColor = settingsPrefs.getInt(KEY_IND_MIC_COLOR, defaults.micColor),
+            locColor = settingsPrefs.getInt(KEY_IND_LOC_COLOR, defaults.locColor),
+            showIcons = settingsPrefs.getBoolean(KEY_IND_ICONS, defaults.showIcons)
         )
         return ShieldSettings(
             themeMode = runCatching { ThemeMode.valueOf(theme ?: "") }.getOrDefault(ThemeMode.SYSTEM),
@@ -220,12 +225,11 @@ class ShieldPreferences(context: Context) {
         private const val KEY_IND_LOC = "ind_loc"
         private const val KEY_IND_SIZE = "ind_size"
         private const val KEY_IND_OPACITY = "ind_opacity"
-        private const val KEY_IND_CAM_X = "ind_cam_x"
-        private const val KEY_IND_CAM_Y = "ind_cam_y"
-        private const val KEY_IND_MIC_X = "ind_mic_x"
-        private const val KEY_IND_MIC_Y = "ind_mic_y"
-        private const val KEY_IND_LOC_X = "ind_loc_x"
-        private const val KEY_IND_LOC_Y = "ind_loc_y"
+        private const val KEY_IND_CORNER = "ind_corner"
+        private const val KEY_IND_CAM_COLOR = "ind_cam_color"
+        private const val KEY_IND_MIC_COLOR = "ind_mic_color"
+        private const val KEY_IND_LOC_COLOR = "ind_loc_color"
+        private const val KEY_IND_ICONS = "ind_icons"
 
         @Volatile
         private var instance: ShieldPreferences? = null

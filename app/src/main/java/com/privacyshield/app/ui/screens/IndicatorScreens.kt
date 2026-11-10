@@ -4,31 +4,34 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,17 +42,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.privacyshield.app.ShieldViewModel
 import com.privacyshield.app.data.IndicatorSettings
 import com.privacyshield.app.service.IndicatorOverlayService
 import com.privacyshield.app.ui.components.SectionCard
 import com.privacyshield.app.ui.components.ShieldTopBar
-import kotlin.math.roundToInt
+
+private val SwatchColors = listOf(
+    0xFF00E676.toInt(), // green
+    0xFFFF9800.toInt(), // orange
+    0xFF2196F3.toInt(), // blue
+    0xFFF44336.toInt(), // red
+    0xFFE040FB.toInt(), // purple
+    0xFFFFEB3B.toInt(), // yellow
+    0xFFFFFFFF.toInt()  // white
+)
 
 @Composable
 fun IndicatorSettingsScreen(viewModel: ShieldViewModel, onBack: () -> Unit) {
@@ -58,7 +68,17 @@ fun IndicatorSettingsScreen(viewModel: ShieldViewModel, onBack: () -> Unit) {
     var draft by remember(settings.indicators) { mutableStateOf(settings.indicators) }
     val canOverlay = Settings.canDrawOverlays(context)
 
-    Scaffold(topBar = { ShieldTopBar("Tùy chỉnh chỉ báo quyền riêng tư", onBack) }) { padding ->
+    fun apply() {
+        viewModel.preferences.updateSettings { it.copy(indicators = draft) }
+        if (draft.enabled && Settings.canDrawOverlays(context)) {
+            IndicatorOverlayService.startIfEnabled(context)
+            IndicatorOverlayService.requestRebuild(context)
+        } else {
+            IndicatorOverlayService.stop(context)
+        }
+    }
+
+    Scaffold(topBar = { ShieldTopBar("Chấm chỉ báo camera & micrô", onBack) }) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -66,11 +86,13 @@ fun IndicatorSettingsScreen(viewModel: ShieldViewModel, onBack: () -> Unit) {
         ) {
             item {
                 SectionCard {
-                    Text("Giới hạn trên Android 8/9", style = MaterialTheme.typography.titleMedium)
+                    Text("Cách hoạt động", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Android 8 và 9 không có API công khai cho biết camera, micrô hoặc vị trí đang được dùng ngay lúc này. " +
-                            "Ba chấm chỉ hiện khi ứng dụng đang ở trước có quyền tương ứng đã được cấp. Đây là sự hiện diện của quyền, không phải hoạt động cảm biến theo thời gian thực.",
+                        "Chấm camera và micrô chỉ hiện khi hệ thống báo cảm biến đang được dùng thật, " +
+                            "giống chỉ báo của Android 12. Chấm vị trí là tùy chọn và chỉ cho biết " +
+                            "ứng dụng đang mở có quyền vị trí, vì Android không cho ứng dụng thường biết " +
+                            "vị trí đang được dùng hay không.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -85,30 +107,38 @@ fun IndicatorSettingsScreen(viewModel: ShieldViewModel, onBack: () -> Unit) {
                         Spacer(Modifier.height(8.dp))
                         Text("Cần quyền hiển thị trên ứng dụng khác.", color = MaterialTheme.colorScheme.error)
                         Button(onClick = {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
+                            context.startActivity(
+                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
                             )
-                            context.startActivity(intent)
                         }) { Text("Cấp quyền hiển thị nổi") }
                     }
                 }
             }
             item {
-                Text("Xem trước vị trí", style = MaterialTheme.typography.titleMedium)
+                Text("Vị trí", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                PhonePreview(draft) { updated -> draft = updated }
-                Text(
-                    "Kéo các chấm trên màn hình mẫu để đổi vị trí.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                CornerPreview(draft)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CornerChip("Trên trái", IndicatorSettings.CORNER_TOP_LEFT, draft) { draft = it }
+                    CornerChip("Trên phải", IndicatorSettings.CORNER_TOP_RIGHT, draft) { draft = it }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    CornerChip("Dưới trái", IndicatorSettings.CORNER_BOTTOM_LEFT, draft) { draft = it }
+                    CornerChip("Dưới phải", IndicatorSettings.CORNER_BOTTOM_RIGHT, draft) { draft = it }
+                }
             }
             item {
                 SectionCard {
-                    ToggleRow("Chấm camera (xanh)", draft.showCamera) { draft = draft.copy(showCamera = it) }
-                    ToggleRow("Chấm micrô (cam)", draft.showMic) { draft = draft.copy(showMic = it) }
-                    ToggleRow("Chấm vị trí (xanh dương)", draft.showLocation) { draft = draft.copy(showLocation = it) }
+                    ToggleRow("Chấm camera", draft.showCamera) { draft = draft.copy(showCamera = it) }
+                    ColorRow(draft.cameraColor) { draft = draft.copy(cameraColor = it) }
+                    ToggleRow("Chấm micrô", draft.showMic) { draft = draft.copy(showMic = it) }
+                    ColorRow(draft.micColor) { draft = draft.copy(micColor = it) }
+                    ToggleRow("Chấm vị trí (theo quyền, không thời gian thực)", draft.showLocation) {
+                        draft = draft.copy(showLocation = it)
+                    }
+                    ColorRow(draft.locColor) { draft = draft.copy(locColor = it) }
+                    ToggleRow("Hiện biểu tượng trong chấm", draft.showIcons) { draft = draft.copy(showIcons = it) }
                 }
             }
             item {
@@ -129,21 +159,25 @@ fun IndicatorSettingsScreen(viewModel: ShieldViewModel, onBack: () -> Unit) {
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { draft = IndicatorSettings(enabled = draft.enabled) }) { Text("Mặc định") }
                     OutlinedButton(onClick = {
-                        draft = IndicatorSettings()
-                    }) { Text("Khôi phục mặc định") }
-                    Button(onClick = {
-                        viewModel.preferences.updateSettings { it.copy(indicators = draft) }
-                        if (draft.enabled && Settings.canDrawOverlays(context)) {
-                            IndicatorOverlayService.startIfEnabled(context)
-                        } else {
-                            IndicatorOverlayService.stop(context)
-                        }
-                    }) { Text("Áp dụng") }
+                        apply()
+                        IndicatorOverlayService.preview(context)
+                    }) { Text("Xem thử 4 giây") }
+                    Button(onClick = { apply() }) { Text("Áp dụng") }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun CornerChip(label: String, corner: Int, draft: IndicatorSettings, onChange: (IndicatorSettings) -> Unit) {
+    FilterChip(
+        selected = draft.corner == corner,
+        onClick = { onChange(draft.copy(corner = corner)) },
+        label = { Text(label) }
+    )
 }
 
 @Composable
@@ -155,12 +189,41 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 }
 
 @Composable
-private fun PhonePreview(settings: IndicatorSettings, onChange: (IndicatorSettings) -> Unit) {
-    val phoneWidth = 200.dp
-    val phoneHeight = 380.dp
+private fun ColorRow(selected: Int, onPick: (Int) -> Unit) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(bottom = 10.dp)
+    ) {
+        SwatchColors.forEach { argb ->
+            val isSelected = selected == argb
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color(argb))
+                    .border(
+                        width = if (isSelected) 3.dp else 1.dp,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline,
+                        shape = CircleShape
+                    )
+                    .clickable { onPick(argb) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CornerPreview(settings: IndicatorSettings) {
+    val alignment = when (settings.corner) {
+        IndicatorSettings.CORNER_TOP_LEFT -> Alignment.TopStart
+        IndicatorSettings.CORNER_TOP_RIGHT -> Alignment.TopEnd
+        IndicatorSettings.CORNER_BOTTOM_LEFT -> Alignment.BottomStart
+        else -> Alignment.BottomEnd
+    }
     Box(
         Modifier
-            .size(phoneWidth, phoneHeight)
+            .size(width = 170.dp, height = 300.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(Color(0xFF1C1C1E))
             .padding(8.dp)
@@ -170,68 +233,40 @@ private fun PhonePreview(settings: IndicatorSettings, onChange: (IndicatorSettin
                 .fillMaxSize()
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF2C2C2E))
+                .padding(8.dp)
         ) {
-            if (settings.showCamera) {
-                DraggableDot(
-                    color = Color(0xFF4CAF50),
-                    fractionX = settings.cameraX,
-                    fractionY = settings.cameraY,
-                    size = settings.sizeDp,
-                    opacity = settings.opacity
-                ) { x, y -> onChange(settings.copy(cameraX = x, cameraY = y)) }
-            }
-            if (settings.showMic) {
-                DraggableDot(
-                    color = Color(0xFFFF9800),
-                    fractionX = settings.micX,
-                    fractionY = settings.micY,
-                    size = settings.sizeDp,
-                    opacity = settings.opacity
-                ) { x, y -> onChange(settings.copy(micX = x, micY = y)) }
-            }
-            if (settings.showLocation) {
-                DraggableDot(
-                    color = Color(0xFF2196F3),
-                    fractionX = settings.locX,
-                    fractionY = settings.locY,
-                    size = settings.sizeDp,
-                    opacity = settings.opacity
-                ) { x, y -> onChange(settings.copy(locX = x, locY = y)) }
+            Row(Modifier.align(alignment), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (settings.showCamera) PreviewDot(Icons.Filled.CameraAlt, settings.cameraColor, settings)
+                if (settings.showMic) PreviewDot(Icons.Filled.Mic, settings.micColor, settings)
+                if (settings.showLocation) PreviewDot(Icons.Filled.LocationOn, settings.locColor, settings)
             }
         }
     }
 }
 
 @Composable
-private fun DraggableDot(
-    color: Color,
-    fractionX: Float,
-    fractionY: Float,
-    size: Float,
-    opacity: Float,
-    onMoved: (Float, Float) -> Unit
-) {
-    val density = LocalDensity.current
-    val parentWidth = with(density) { 184.dp.toPx() }
-    val parentHeight = with(density) { 364.dp.toPx() }
-    var offsetX by remember(fractionX) { mutableStateOf(fractionX * parentWidth) }
-    var offsetY by remember(fractionY) { mutableStateOf(fractionY * parentHeight) }
-
-    Box(
-        Modifier
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-            .size(size.dp)
-            .clip(CircleShape)
-            .background(color.copy(alpha = opacity))
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    offsetX = (offsetX + dragAmount.x).coerceIn(0f, parentWidth - with(density) { size.dp.toPx() })
-                    offsetY = (offsetY + dragAmount.y).coerceIn(0f, parentHeight - with(density) { size.dp.toPx() })
-                    val fx = (offsetX / parentWidth).coerceIn(0f, 0.95f)
-                    val fy = (offsetY / parentHeight).coerceIn(0f, 0.9f)
-                    onMoved(fx, fy)
-                }
-            }
-    )
+private fun PreviewDot(icon: ImageVector, argb: Int, settings: IndicatorSettings) {
+    val color = Color(argb)
+    val size = if (settings.showIcons) settings.sizeDp * 1.7f else settings.sizeDp
+    val alpha = settings.opacity.coerceIn(0.3f, 1f)
+    if (settings.showIcons) {
+        Box(
+            Modifier
+                .size(size.dp)
+                .clip(CircleShape)
+                .background(Color(0xE6121417))
+                .border(1.5.dp, color.copy(alpha = alpha), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = color.copy(alpha = alpha), modifier = Modifier.size((size * 0.55f).dp))
+        }
+    } else {
+        Box(
+            Modifier
+                .size(size.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = alpha))
+                .border(1.dp, Color(0x66000000), CircleShape)
+        )
+    }
 }

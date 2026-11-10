@@ -34,6 +34,7 @@ class AppLockAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        SensorMonitor.start(this)
         IndicatorOverlayService.requestUpdate(this)
     }
 }

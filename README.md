@@ -37,3 +37,9 @@ Mọi danh sách ứng dụng và quyền đều đọc từ máy thật. Dữ l
 5. Để kiểm tra cập nhật trong ứng dụng, tạo GitHub Release có file `.apk`. Có thể kèm file `.sha256`. Trong ứng dụng, nhập chủ repo và tên repo rồi bấm kiểm tra.
 
 APK release được ký bằng debug keystore để cài được ngay. Bản cập nhật phải ký cùng chứng chỉ, nếu không Android sẽ từ chối cài đè.
+
+## Chấm chỉ báo & lịch sử truy cập (1.2.0)
+
+- Chấm camera/micrô chỉ hiện khi hệ thống báo cảm biến đang được dùng (CameraManager / AudioRecordingCallback).
+- Lịch sử ghi lại từng phiên kèm biểu tượng ứng dụng. Tên ứng dụng là suy đoán (ứng dụng đang mở, hoặc ứng dụng có quyền đang chạy dịch vụ nền — cần quyền truy cập dữ liệu sử dụng, Android 10+). Android không cho ứng dụng thường biết chính xác ai mở cảm biến.
+- Chấm vị trí chỉ dựa trên quyền của ứng dụng đang mở, không phải thời gian thực.
