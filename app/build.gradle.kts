@@ -1,8 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Fixed signing key: every build (debug + release, local + GitHub Actions) is signed the same
+// way, so a new APK installs over the old one without uninstalling.
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun signingValue(envName: String, propName: String): String? =
+    System.getenv(envName)?.takeIf { it.isNotBlank() } ?: keystoreProps.getProperty(propName)
 
 android {
     namespace = "com.privacyshield.app"
@@ -12,16 +23,26 @@ android {
         applicationId = "com.privacyshield.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.2.1"
+        versionCode = 7
+        versionName = "1.2.2"
+    }
+
+    signingConfigs {
+        create("shield") {
+            storeFile = file(signingValue("SIGNING_STORE_FILE", "storeFile") ?: "release.keystore")
+            storePassword = signingValue("SIGNING_STORE_PASSWORD", "storePassword")
+            keyAlias = signingValue("SIGNING_KEY_ALIAS", "keyAlias")
+            keyPassword = signingValue("SIGNING_KEY_PASSWORD", "keyPassword")
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shield")
+        }
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the GitHub Actions APK can be installed.
-            // Replace with your own keystore before publishing to a store.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("shield")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
