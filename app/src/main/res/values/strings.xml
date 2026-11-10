@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Privacy Shield</string>
+    <string name="accessibility_description">Privacy Shield dùng dịch vụ này chỉ để biết ứng dụng nào đang ở phía trước, nhằm hiện màn hình khóa cho ứng dụng bạn đã chọn. Ứng dụng không đọc nội dung trên màn hình.</string>
+    <string name="device_admin_explanation">Cho phép Privacy Shield khóa màn hình ngay khi bạn yêu cầu. Ứng dụng không thể chặn nút nguồn.</string>
+</resources>
